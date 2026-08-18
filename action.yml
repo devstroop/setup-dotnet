@@ -1,0 +1,98 @@
+name: 'Setup .NET'
+description: 'Install a pinned .NET SDK from the official dotnetcli release metadata (SHA-512 verified) and export its location. Version-aware: "lts"/"sts"/"latest" channels, a channel line like "9.0", or an exact SDK version like "9.0.317". Composite action — no Node runtime.'
+author: 'devstroop'
+
+branding:
+  icon: 'terminal'
+  color: 'purple'
+
+inputs:
+  version:
+    description: >
+      .NET SDK version to request: "lts" (newest supported LTS channel,
+      default), "sts" (newest supported STS channel), "latest" (newest
+      non-preview channel), a channel line like "9.0" (latest SDK on that
+      channel), or an exact SDK version like "9.0.317". Resolved against the
+      official release metadata (releases-index.json + per-channel
+      releases.json) and verified by SHA-512.
+    default: 'lts'
+  use-cache:
+    description: >
+      Whether to cache the .NET SDK across workflow runs.
+    default: 'true'
+  cache-key:
+    description: >
+      Additional component appended to cache keys. When using a matrix,
+      include matrix variables so each cell gets its own cache.
+    default: ''
+
+outputs:
+  dotnet-version:
+    description: 'Resolved .NET SDK version (e.g. 10.0.400).'
+    value: ${{ steps.finalize.outputs.dotnet-version }}
+  dotnet-root:
+    description: '.NET SDK installation directory (contains the dotnet binary).'
+    value: ${{ steps.finalize.outputs.dotnet-root }}
+  cache-hit:
+    description: 'Whether the SDK was restored from cache.'
+    value: ${{ steps.restore-cache.outputs.cache-hit }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Resolve .NET SDK release
+      id: resolve
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_CACHE_KEY: ${{ inputs.cache-key }}
+      run: bash "${{ github.action_path }}/scripts/setup-posix.sh" resolve
+
+    - name: Restore .NET SDK from cache
+      id: restore-cache
+      if: inputs.use-cache == 'true'
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.resolve.outputs.install-root }}
+        key: setup-dotnet-${{ runner.os }}-${{ runner.arch }}-${{ steps.resolve.outputs.cache-key }}
+        # No restore-keys: a fallback hit would restore an older SDK
+        # into the resolved version's directory and fail the version
+        # assertion in finalize. Exact-version keys only.
+
+    - name: Install .NET SDK (Linux/macOS)
+      if: runner.os != 'Windows'
+      shell: bash
+      env:
+        INSTALL_ROOT: ${{ steps.resolve.outputs.install-root }}
+        ARCHIVE_URL: ${{ steps.resolve.outputs.archive-url }}
+        SHA512: ${{ steps.resolve.outputs.sha512 }}
+        CACHE_HIT: ${{ steps.restore-cache.outputs.cache-hit }}
+      run: bash "${{ github.action_path }}/scripts/setup-posix.sh" install
+
+    - name: Install .NET SDK (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        RESOLVED_VERSION: ${{ steps.resolve.outputs.resolved-version }}
+        INSTALL_ROOT: ${{ steps.resolve.outputs.install-root }}
+        ARCHIVE_URL: ${{ steps.resolve.outputs.archive-url }}
+        SHA512: ${{ steps.resolve.outputs.sha512 }}
+        CACHE_HIT: ${{ steps.restore-cache.outputs.cache-hit }}
+      run: pwsh -NoProfile -NonInteractive -File "${{ github.action_path }}/scripts/setup-windows.ps1"
+
+    - name: Save .NET SDK to cache
+      if: always() && inputs.use-cache == 'true' && steps.restore-cache.outputs.cache-hit != 'true'
+      continue-on-error: true
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.resolve.outputs.install-root }}
+        key: setup-dotnet-${{ runner.os }}-${{ runner.arch }}-${{ steps.resolve.outputs.cache-key }}
+
+    - name: Assert version and emit outputs
+      id: finalize
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        RESOLVED_VERSION: ${{ steps.resolve.outputs.resolved-version }}
+        INSTALL_ROOT: ${{ steps.resolve.outputs.install-root }}
+      run: bash "${{ github.action_path }}/scripts/setup-posix.sh" finalize
