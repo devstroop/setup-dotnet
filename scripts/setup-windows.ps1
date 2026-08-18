@@ -27,12 +27,17 @@ if ($env:CACHE_HIT -eq "true" -and (Test-Path $dotnetExe)) {
     Write-Host "SHA-512 verified"
 
     if ($env:ARCHIVE_URL -like "*.zip") {
-        # Some archives contain a top-level dotnet-sdk-X/ dir; move any such
-        # dir's contents up so the SDK lands directly in INSTALL_ROOT.
+        # .NET SDK zips are flat (dotnet.exe at root); some other archives
+        # wrap contents in a single top-level dir. Treat the archive as
+        # wrapped only when it has exactly one root entry that is a dir.
         $expanded = Join-Path $env:INSTALL_ROOT "expanded"
         Expand-Archive -Path $archive -DestinationPath $expanded -Force
-        $inner = Get-ChildItem -Path $expanded -Directory | Select-Object -First 1
-        $src = if ($inner) { $inner.FullName } else { $expanded }
+        $rootItems = @(Get-ChildItem -Path $expanded -Force)
+        $src = if ($rootItems.Count -eq 1 -and $rootItems[0].PSIsContainer) {
+            $rootItems[0].FullName
+        } else {
+            $expanded
+        }
         Get-ChildItem -Path $src -Force | Move-Item -Destination $env:INSTALL_ROOT -Force
         Remove-Item $expanded -Recurse -Force
         Remove-Item $archive -Force

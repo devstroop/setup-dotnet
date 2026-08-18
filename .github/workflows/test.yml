@@ -72,7 +72,7 @@ jobs:
         shell: bash
         run: |
           cd .fixtures/hello
-          dotnet run --no-restore -v:q
+          dotnet run -v:q
 
       - name: Run twice (cache restore path)
         uses: ./
