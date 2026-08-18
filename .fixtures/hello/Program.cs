@@ -8,7 +8,8 @@ if (major < 6)
 }
 
 Console.WriteLine($"hello from .NET {Environment.Version}");
-if (Environment.GetEnvironmentVariable("DOTNET_ROOT") is not { Length: > 0 } root)
+var root = Environment.GetEnvironmentVariable("DOTNET_ROOT") ?? "";
+if (root.Length == 0)
 {
     Console.Error.WriteLine("DOTNET_ROOT env var not set");
     Environment.Exit(1);
